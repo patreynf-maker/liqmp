@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Listado de Cobros</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Libre+Franklin:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --ink:#1B2430;
+    --ink-soft:#4A5568;
+    --paper:#F7F5EF;
+    --paper-raised:#FFFFFF;
+    --line:#D9D3C4;
+    --amber:#B96A22;
+    --amber-soft:#F1E1CC;
+    --green:#3F6B52;
+    --green-soft:#E1EAE3;
+    --shadow: 0 1px 2px rgba(27,36,48,.06);
+  }
+  :root:not([data-theme="light"]){
+    @media (prefers-color-scheme: dark){
+      --ink:#EDEAE2;
+      --ink-soft:#B7B2A4;
+      --paper:#171A16;
+      --paper-raised:#20241F;
+      --line:#3A3E35;
+      --amber:#E1975A;
+      --amber-soft:#3A2C1A;
+      --green:#8FBFA0;
+      --green-soft:#1E2B22;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ink:#EDEAE2;
+    --ink-soft:#B7B2A4;
+    --paper:#171A16;
+    --paper-raised:#20241F;
+    --line:#3A3E35;
+    --amber:#E1975A;
+    --amber-soft:#3A2C1A;
+    --green:#8FBFA0;
+    --green-soft:#1E2B22;
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Libre Franklin', system-ui, sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{
+    max-width:920px;
+    margin:0 auto;
+    padding:2.5rem 1.5rem 4rem;
+  }
+  header.page-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    gap:1rem;
+    border-bottom:2px solid var(--ink);
+    padding-bottom:1rem;
+    margin-bottom:1.75rem;
+    flex-wrap:wrap;
+  }
+  h1{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    font-size:2.1rem;
+    margin:0 0 .2rem;
+    letter-spacing:-.01em;
+  }
+  .sub{
+    color:var(--ink-soft);
+    font-size:.92rem;
+    max-width:36ch;
+  }
+  .meta-right{
+    text-align:right;
+    font-size:.82rem;
+    color:var(--ink-soft);
+    line-height:1.5;
+  }
+
+  .dropzone{
+    border:1.5px dashed var(--line);
+    border-radius:4px;
+    background:var(--paper-raised);
+    padding:2.2rem 1.5rem;
+    text-align:center;
+    cursor:pointer;
+    transition:border-color .15s ease, background .15s ease;
+  }
+  .dropzone.drag{
+    border-color:var(--amber);
+    background:var(--amber-soft);
+  }
+  .dropzone strong{display:block; font-size:1rem; margin-bottom:.3rem;}
+  .dropzone span{color:var(--ink-soft); font-size:.85rem;}
+  .dropzone input{display:none;}
+
+  .toolbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:1rem;
+    margin:1.75rem 0 1rem;
+    flex-wrap:wrap;
+  }
+  .filename{
+    font-size:.85rem;
+    color:var(--ink-soft);
+  }
+  .filename b{color:var(--ink); font-weight:600;}
+  .actions{display:flex; gap:.6rem;}
+  button{
+    font-family:inherit;
+    font-size:.85rem;
+    font-weight:600;
+    border-radius:3px;
+    border:1px solid var(--ink);
+    background:var(--ink);
+    color:var(--paper);
+    padding:.55rem 1.1rem;
+    cursor:pointer;
+  }
+  button.secondary{
+    background:transparent;
+    color:var(--ink);
+  }
+  button:disabled{opacity:.4; cursor:not-allowed;}
+
+  .status{
+    font-size:.85rem;
+    padding:.7rem .9rem;
+    border-radius:3px;
+    margin-bottom:1rem;
+  }
+  .status.error{background:#F5DEDA; color:#7A2E1F;}
+  :root[data-theme="dark"] .status.error, @media (prefers-color-scheme: dark){ .status.error{background:#3A211C; color:#E8A392;} }
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+    background:var(--paper-raised);
+    font-variant-numeric:tabular-nums;
+  }
+  thead th{
+    text-align:left;
+    font-size:.72rem;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:var(--ink-soft);
+    border-bottom:1.5px solid var(--ink);
+    padding:.5rem .6rem;
+    font-weight:600;
+  }
+  thead th.num, tfoot td.num, td.num{text-align:right;}
+  tbody td{
+    padding:.42rem .6rem;
+    border-bottom:1px solid var(--line);
+    font-size:.85rem;
+  }
+  tbody tr:nth-child(even){background:rgba(0,0,0,.015);}
+  td.num, tfoot td.num{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:.82rem;
+  }
+  tfoot td{
+    padding:.65rem .6rem;
+    border-top:2px solid var(--ink);
+    font-weight:700;
+    font-size:.9rem;
+  }
+  tfoot td.total-label{color:var(--ink-soft); font-weight:600;}
+  tfoot td.num{color:var(--green); font-size:1.02rem;}
+
+  .empty{
+    text-align:center;
+    padding:3rem 1rem;
+    color:var(--ink-soft);
+    font-size:.9rem;
+  }
+
+  .count-badge{
+    display:inline-block;
+    background:var(--green-soft);
+    color:var(--green);
+    font-size:.75rem;
+    font-weight:600;
+    padding:.15rem .55rem;
+    border-radius:20px;
+    margin-left:.4rem;
+  }
+
+  @media print{
+    body{background:#fff;}
+    .no-print{display:none !important;}
+    .wrap{max-width:none; padding:0 8mm;}
+    header.page-head{margin-bottom:.6rem; padding-bottom:.5rem;}
+    h1{font-size:1.3rem;}
+    .sub{display:none;}
+    table{font-size:.75rem;}
+    thead{display:table-header-group;}
+    tfoot{display:table-footer-group;}
+    tr{break-inside:avoid;}
+    @page{size:A4; margin:12mm 10mm;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page-head">
+    <div>
+      <h1>Listado de Cobros</h1>
+      <div class="sub">Filtra los movimientos de tipo "Cobro" desde el archivo de movimientos y calcula el total.</div>
+    </div>
+    <div class="meta-right" id="metaRight"></div>
+  </header>
+
+  <div class="dropzone no-print" id="dropzone">
+    <strong>Arrastrá el Excel de movimientos acá</strong>
+    <span>o hacé clic para elegir el archivo (.xlsx)</span>
+    <input type="file" id="fileInput" accept=".xlsx,.xls">
+  </div>
+
+  <div id="statusBox"></div>
+
+  <div class="toolbar no-print" id="toolbar" style="display:none;">
+    <div class="filename">Archivo: <b id="filenameLabel"></b></div>
+    <div class="actions">
+      <button class="secondary" id="btnClear">Cambiar archivo</button>
+      <button class="secondary no-print" id="btnCsv" style="display:none;">Descargar CSV</button>
+      <button id="btnPrint">Imprimir listado</button>
+    </div>
+  </div>
+
+  <div id="resultArea"></div>
+
+</div>
+
+<script>
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const statusBox = document.getElementById('statusBox');
+const toolbar = document.getElementById('toolbar');
+const filenameLabel = document.getElementById('filenameLabel');
+const resultArea = document.getElementById('resultArea');
+const metaRight = document.getElementById('metaRight');
+const btnClear = document.getElementById('btnClear');
+const btnPrint = document.getElementById('btnPrint');
+const btnCsv = document.getElementById('btnCsv');
+
+let currentCobros = [];
+let downloadsApi = null;
+if (window.claude && typeof window.claude.use === 'function') {
+  window.claude.use('downloads').then(api => {
+    downloadsApi = api;
+    if (currentCobros.length) btnCsv.style.display = 'inline-block';
+  }).catch(() => { downloadsApi = null; });
+}
+
+// Descarga clásica (Blob + link temporal) para cuando el archivo se abre
+// fuera del visor de artifacts de claude.ai, donde downloadsApi no existe.
+function downloadCsvFallback(filename, csvText){
+  const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files.length) handleFile(e.target.files[0]);
+});
+btnClear.addEventListener('click', () => {
+  fileInput.value = '';
+  toolbar.style.display = 'none';
+  dropzone.style.display = 'block';
+  resultArea.innerHTML = '';
+  statusBox.innerHTML = '';
+  metaRight.innerHTML = '';
+  currentCobros = [];
+  btnCsv.style.display = 'none';
+});
+btnPrint.addEventListener('click', () => window.print());
+
+function csvField(v){
+  const s = v == null ? '' : String(v);
+  return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+btnCsv.addEventListener('click', async () => {
+  if (!currentCobros.length) return;
+  const header = ['Fecha de pago','Numero de movimiento','Operacion relacionada','Importe'];
+  const lines = [header.join(';')];
+  for (const c of currentCobros) {
+    lines.push([
+      csvField(formatDate(c.fecha)),
+      csvField(c.movimiento),
+      csvField(c.relacionada),
+      csvField(c.importe.toFixed(2).replace('.', ','))
+    ].join(';'));
+  }
+  const total = currentCobros.reduce((acc, c) => acc + c.importe, 0);
+  lines.push(['', '', 'Total', csvField(total.toFixed(2).replace('.', ','))].join(';'));
+  const csv = '\uFEFF' + lines.join('\r\n');
+
+  if (downloadsApi) {
+    try {
+      await downloadsApi.save({ filename: 'cobros.csv', data: csv });
+    } catch (err) {
+      if (err && err.code !== 'declined') {
+        showStatus('No se pudo descargar el CSV: ' + (err.message || err.code), 'error');
+      }
+    }
+  } else {
+    downloadCsvFallback('cobros.csv', csv);
+  }
+});
+
+function normalizeHeader(s){
+  return String(s || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().trim();
+}
+
+// Convierte un importe que puede venir como número o como texto,
+// con "." como separador decimal, a un Number JS.
+function parseImporte(raw){
+  if (typeof raw === 'number') return raw;
+  if (raw == null) return NaN;
+  let s = String(raw).trim();
+  if (s === '') return NaN;
+  s = s.replace(/\s/g, '');
+  // Si tiene coma y punto, asumimos punto = miles, coma = decimal -> normalizamos a punto decimal
+  if (s.includes(',') && s.includes('.')) {
+    s = s.replace(/\./g, '').replace(',', '.');
+  } else if (s.includes(',') && !s.includes('.')) {
+    // solo coma: la tratamos como separador decimal
+    s = s.replace(',', '.');
+  }
+  // si solo tiene punto, ya está en formato decimal estándar (12345.67)
+  const n = parseFloat(s);
+  return n;
+}
+
+function formatMoney(n){
+  return n.toLocaleString('es-AR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+}
+
+function formatDate(raw){
+  if (!raw) return '';
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return String(raw);
+  const dd = String(d.getUTCDate()).padStart(2,'0');
+  const mm = String(d.getUTCMonth()+1).padStart(2,'0');
+  const yy = d.getUTCFullYear();
+  const hh = String(d.getUTCHours()).padStart(2,'0');
+  const mi = String(d.getUTCMinutes()).padStart(2,'0');
+  return `${dd}/${mm}/${yy} ${hh}:${mi}`;
+}
+
+function showStatus(msg, type){
+  statusBox.innerHTML = `<div class="status ${type||''}">${msg}</div>`;
+}
+
+function handleFile(file){
+  statusBox.innerHTML = '';
+  const reader = new FileReader();
+  reader.onerror = () => showStatus('No se pudo leer el archivo.', 'error');
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' });
+      processRows(rows, file.name);
+    } catch (err) {
+      showStatus('Error al procesar el Excel: ' + err.message, 'error');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function processRows(rows, fileName){
+  if (!rows.length) { showStatus('El archivo está vacío.', 'error'); return; }
+
+  const headerRow = rows[0].map(normalizeHeader);
+  let idxTipo = headerRow.findIndex(h => h.includes('tipo') && h.includes('operacion'));
+  let idxImporte = headerRow.findIndex(h => h.includes('importe'));
+  let idxFecha = headerRow.findIndex(h => h.includes('fecha'));
+  let idxMov = headerRow.findIndex(h => h.includes('numero') && h.includes('movimiento'));
+  let idxRel = headerRow.findIndex(h => h.includes('operacion') && h.includes('relacionada'));
+
+  // fallback a posiciones fijas según la planilla original si no se detectan los encabezados
+  if (idxTipo === -1) idxTipo = 1;
+  if (idxImporte === -1) idxImporte = 4;
+  if (idxFecha === -1) idxFecha = 0;
+  if (idxMov === -1) idxMov = 2;
+  if (idxRel === -1) idxRel = 3;
+
+  const dataRows = rows.slice(1);
+  const cobros = [];
+  for (const r of dataRows) {
+    if (!r || r.length === 0) continue;
+    const tipo = String(r[idxTipo] || '').trim();
+    if (tipo.toLowerCase() !== 'cobro') continue;
+    const importe = parseImporte(r[idxImporte]);
+    cobros.push({
+      fecha: r[idxFecha],
+      movimiento: r[idxMov],
+      relacionada: r[idxRel],
+      importe: isNaN(importe) ? 0 : importe,
+      importeInvalido: isNaN(importe)
+    });
+  }
+
+  filenameLabel.textContent = fileName;
+  toolbar.style.display = 'flex';
+  dropzone.style.display = 'none';
+  metaRight.innerHTML = `Generado el ${new Date().toLocaleDateString('es-AR')}`;
+  currentCobros = cobros;
+
+  if (!cobros.length) {
+    resultArea.innerHTML = '<div class="empty">No se encontraron movimientos de tipo "Cobro" en este archivo.</div>';
+    btnCsv.style.display = 'none';
+    return;
+  }
+
+  btnCsv.style.display = 'inline-block';
+
+  const total = cobros.reduce((acc, c) => acc + c.importe, 0);
+  const invalidCount = cobros.filter(c => c.importeInvalido).length;
+
+  if (invalidCount > 0) {
+    showStatus(`${invalidCount} importe(s) no se pudieron interpretar como número y se contaron como 0.`, 'error');
+  }
+
+  let html = `
+    <div class="no-print" style="margin-bottom:.6rem; font-size:.85rem; color:var(--ink-soft);">
+      ${cobros.length} cobro${cobros.length===1?'':'s'} encontrado${cobros.length===1?'':'s'}
+      <span class="count-badge">Total $${formatMoney(total)}</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha de pago</th>
+          <th>N° de movimiento</th>
+          <th>Operación relacionada</th>
+          <th class="num">Importe</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+  for (const c of cobros) {
+    html += `<tr>
+      <td>${formatDate(c.fecha)}</td>
+      <td>${c.movimiento ?? ''}</td>
+      <td>${c.relacionada ?? ''}</td>
+      <td class="num">$${formatMoney(c.importe)}</td>
+    </tr>`;
+  }
+  html += `
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="3" class="total-label">Total de cobros (${cobros.length})</td>
+          <td class="num">$${formatMoney(total)}</td>
+        </tr>
+      </tfoot>
+    </table>
+  `;
+  resultArea.innerHTML = html;
+}
+</script>
+</body>
+</html>
