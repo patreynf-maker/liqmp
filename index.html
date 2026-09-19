@@ -198,18 +198,78 @@
     margin-left:.4rem;
   }
 
+  /* ---- Hoja de impresión: se arma y se ajusta por JS antes de imprimir ---- */
+  #printSheet{
+    display:none;
+    position:fixed;
+    left:-9999px;
+    top:0;
+    width:194mm;
+    background:#fff;
+    color:#000;
+    font-family:'Libre Franklin', system-ui, sans-serif;
+  }
+  #printSheet.measuring{ display:block; }
+  #printSheet .ps-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    border-bottom:1.2pt solid #000;
+    padding-bottom:2mm;
+    margin-bottom:2mm;
+  }
+  #printSheet .ps-header h2{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    font-size:13pt;
+    margin:0;
+  }
+  #printSheet .ps-header .ps-meta{font-size:8pt; color:#444;}
+  #printSheet .ps-columns{
+    column-count:2;
+    column-gap:6mm;
+  }
+  #printSheet .ps-entry{
+    break-inside:avoid;
+    -webkit-column-break-inside:avoid;
+    padding:1mm 0;
+    border-bottom:.3pt solid #ccc;
+    line-height:1.25;
+  }
+  #printSheet .ps-entry .ps-row1{
+    display:flex;
+    justify-content:space-between;
+    gap:2mm;
+    font-weight:600;
+  }
+  #printSheet .ps-entry .ps-row2{
+    display:flex;
+    justify-content:space-between;
+    gap:2mm;
+    color:#333;
+  }
+  #printSheet .ps-amount{font-family:'IBM Plex Mono', monospace; white-space:nowrap;}
+  #printSheet .ps-total{
+    display:flex;
+    justify-content:space-between;
+    border-top:1.5pt solid #000;
+    margin-top:2mm;
+    padding-top:2mm;
+    font-size:12pt !important;
+    font-weight:700;
+  }
+  #printSheet .ps-total .ps-amount{font-size:12pt !important;}
+
   @media print{
     body{background:#fff;}
-    .no-print{display:none !important;}
-    .wrap{max-width:none; padding:0 8mm;}
-    header.page-head{margin-bottom:.6rem; padding-bottom:.5rem;}
-    h1{font-size:1.3rem;}
-    .sub{display:none;}
-    table{font-size:.75rem;}
-    thead{display:table-header-group;}
-    tfoot{display:table-footer-group;}
-    tr{break-inside:avoid;}
-    @page{size:A4; margin:12mm 10mm;}
+    body > *{display:none !important;}
+    #printSheet{
+      display:block !important;
+      position:static !important;
+      left:auto !important;
+      width:auto !important;
+    }
+    @page{size:A4; margin:10mm 8mm;}
   }
 </style>
 </head>
@@ -243,6 +303,15 @@
 
   <div id="resultArea"></div>
 
+</div>
+
+<div id="printSheet">
+  <div class="ps-header">
+    <h2>Listado de Cobros</h2>
+    <div class="ps-meta" id="psMeta"></div>
+  </div>
+  <div class="ps-columns" id="psColumns"></div>
+  <div class="ps-total" id="psTotal"></div>
 </div>
 
 <script>
@@ -301,7 +370,71 @@ btnClear.addEventListener('click', () => {
   currentCobros = [];
   btnCsv.style.display = 'none';
 });
-btnPrint.addEventListener('click', () => window.print());
+const printSheet = document.getElementById('printSheet');
+const psColumns = document.getElementById('psColumns');
+const psTotal = document.getElementById('psTotal');
+const psMeta = document.getElementById('psMeta');
+
+// mm -> px, misma referencia que usa CSS para unidades físicas (96px = 1in)
+const MM_TO_PX = 96 / 25.4;
+const PAGE_H_MM = 297;
+const PAGE_MARGIN_MM = 20; // 10mm arriba + 10mm abajo (coincide con @page)
+
+function buildPrintSheet(){
+  const total = currentCobros.reduce((acc, c) => acc + c.importe, 0);
+  psMeta.textContent = `${currentCobros.length} cobro${currentCobros.length===1?'':'s'} · ${new Date().toLocaleDateString('es-AR')}`;
+  psColumns.innerHTML = currentCobros.map(c => `
+    <div class="ps-entry">
+      <div class="ps-row1">
+        <span>${formatDate(c.fecha)}</span>
+        <span class="ps-amount">$${formatMoney(c.importe)}</span>
+      </div>
+      <div class="ps-row2">
+        <span>${c.movimiento ?? ''}</span>
+        <span>${(c.relacionada ?? '')}</span>
+      </div>
+    </div>
+  `).join('');
+  psTotal.innerHTML = `<span>Total de cobros (${currentCobros.length})</span><span class="ps-amount">$${formatMoney(total)}</span>`;
+}
+
+// Prueba tamaños de fuente (y cantidad de columnas) de mayor a menor
+// hasta que todo el listado entra en una sola hoja A4.
+function fitPrintSheetToOnePage(){
+  printSheet.classList.add('measuring');
+  const headerH = printSheet.querySelector('.ps-header').getBoundingClientRect().height;
+  const totalH = psTotal.getBoundingClientRect().height;
+  const availableH = (PAGE_H_MM - PAGE_MARGIN_MM) * MM_TO_PX - headerH - totalH - (4 * MM_TO_PX);
+
+  const fontSizes = [9, 8.5, 8, 7.5, 7, 6.5, 6, 5.5, 5, 4.5];
+  const columnOptions = [2, 3];
+  let fitted = false;
+
+  outer:
+  for (const cols of columnOptions) {
+    psColumns.style.columnCount = cols;
+    for (const fs of fontSizes) {
+      psColumns.style.fontSize = fs + 'pt';
+      if (psColumns.scrollHeight <= availableH) {
+        fitted = true;
+        break outer;
+      }
+    }
+  }
+  if (!fitted) {
+    // último recurso: la fuente más chica probada con el mayor número de columnas
+    psColumns.style.columnCount = columnOptions[columnOptions.length - 1];
+    psColumns.style.fontSize = fontSizes[fontSizes.length - 1] + 'pt';
+  }
+  printSheet.classList.remove('measuring');
+}
+
+btnPrint.addEventListener('click', () => {
+  if (!currentCobros.length) { window.print(); return; }
+  buildPrintSheet();
+  fitPrintSheetToOnePage();
+  requestAnimationFrame(() => window.print());
+});
 
 function csvField(v){
   const s = v == null ? '' : String(v);
