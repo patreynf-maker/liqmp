@@ -204,7 +204,7 @@
     position:fixed;
     left:-9999px;
     top:0;
-    width:194mm;
+    width:186mm;
     background:#fff;
     color:#000;
     font-family:'Libre Franklin', system-ui, sans-serif;
@@ -227,28 +227,21 @@
   #printSheet .ps-header .ps-meta{font-size:8pt; color:#444;}
   #printSheet .ps-columns{
     column-count:2;
-    column-gap:6mm;
+    column-gap:5mm;
   }
   #printSheet .ps-entry{
     break-inside:avoid;
     -webkit-column-break-inside:avoid;
-    padding:1mm 0;
-    border-bottom:.3pt solid #ccc;
-    line-height:1.25;
+    display:grid;
+    grid-template-columns:11ch 13ch 12ch 1fr;
+    gap:.5em;
+    font-family:'IBM Plex Mono', monospace;
+    border-bottom:.3pt solid #ddd;
+    padding:.15em 0;
+    white-space:nowrap;
+    overflow:hidden;
   }
-  #printSheet .ps-entry .ps-row1{
-    display:flex;
-    justify-content:space-between;
-    gap:2mm;
-    font-weight:600;
-  }
-  #printSheet .ps-entry .ps-row2{
-    display:flex;
-    justify-content:space-between;
-    gap:2mm;
-    color:#333;
-  }
-  #printSheet .ps-amount{font-family:'IBM Plex Mono', monospace; white-space:nowrap;}
+  #printSheet .ps-entry .ps-amount{text-align:right; font-weight:600;}
   #printSheet .ps-total{
     display:flex;
     justify-content:space-between;
@@ -258,7 +251,7 @@
     font-size:12pt !important;
     font-weight:700;
   }
-  #printSheet .ps-total .ps-amount{font-size:12pt !important;}
+  #printSheet .ps-total .ps-amount{font-size:12pt !important; font-family:'IBM Plex Mono', monospace;}
 
   @media print{
     body{background:#fff;}
@@ -269,7 +262,7 @@
       left:auto !important;
       width:auto !important;
     }
-    @page{size:A4; margin:10mm 8mm;}
+    @page{size:A4; margin:15mm 12mm;}
   }
 </style>
 </head>
@@ -378,47 +371,54 @@ const psMeta = document.getElementById('psMeta');
 // mm -> px, misma referencia que usa CSS para unidades físicas (96px = 1in)
 const MM_TO_PX = 96 / 25.4;
 const PAGE_H_MM = 297;
-const PAGE_MARGIN_MM = 20; // 10mm arriba + 10mm abajo (coincide con @page)
+const PAGE_MARGIN_MM = 30; // 15mm arriba + 15mm abajo (coincide con @page)
 
 function buildPrintSheet(){
   const total = currentCobros.reduce((acc, c) => acc + c.importe, 0);
   psMeta.textContent = `${currentCobros.length} cobro${currentCobros.length===1?'':'s'} · ${new Date().toLocaleDateString('es-AR')}`;
   psColumns.innerHTML = currentCobros.map(c => `
     <div class="ps-entry">
-      <div class="ps-row1">
-        <span>${formatDate(c.fecha)}</span>
-        <span class="ps-amount">$${formatMoney(c.importe)}</span>
-      </div>
-      <div class="ps-row2">
-        <span>${c.movimiento ?? ''}</span>
-        <span>${(c.relacionada ?? '')}</span>
-      </div>
+      <span>${formatDateShort(c.fecha)}</span>
+      <span>${c.movimiento ?? ''}</span>
+      <span>${(c.relacionada ?? '')}</span>
+      <span class="ps-amount">$${formatMoney(c.importe)}</span>
     </div>
   `).join('');
   psTotal.innerHTML = `<span>Total de cobros (${currentCobros.length})</span><span class="ps-amount">$${formatMoney(total)}</span>`;
 }
 
-// Prueba tamaños de fuente (y cantidad de columnas) de mayor a menor
-// hasta que todo el listado entra en una sola hoja A4.
+// Prueba tamaños de fuente y cantidad de columnas hasta encontrar la
+// combinación más legible (fuente más grande posible) que entra,
+// sin recortar texto, en una sola hoja A4.
 function fitPrintSheetToOnePage(){
   printSheet.classList.add('measuring');
   const headerH = printSheet.querySelector('.ps-header').getBoundingClientRect().height;
   const totalH = psTotal.getBoundingClientRect().height;
   const availableH = (PAGE_H_MM - PAGE_MARGIN_MM) * MM_TO_PX - headerH - totalH - (4 * MM_TO_PX);
+  const entries = Array.from(psColumns.querySelectorAll('.ps-entry'));
+  // Alcanza con controlar el ancho de la fila con el importe más largo:
+  // todas comparten el mismo ancho de columnas fijas (fecha/movimiento/relacionada).
+  let widest = entries[0];
+  let widestLen = 0;
+  entries.forEach(el => {
+    const amt = el.querySelector('.ps-amount');
+    const len = amt ? amt.textContent.length : 0;
+    if (len > widestLen) { widestLen = len; widest = el; }
+  });
 
-  const fontSizes = [9, 8.5, 8, 7.5, 7, 6.5, 6, 5.5, 5, 4.5];
-  const columnOptions = [2, 3];
+  const fontSizes = [9, 8.5, 8, 7.5, 7, 6.5, 6, 5.5, 5, 4.5, 4, 3.7, 3.4, 3.1, 2.8];
+  const columnOptions = [2, 3, 4, 5];
   let fitted = false;
 
   outer:
-  for (const cols of columnOptions) {
-    psColumns.style.columnCount = cols;
-    for (const fs of fontSizes) {
+  for (const fs of fontSizes) {
+    for (const cols of columnOptions) {
+      psColumns.style.columnCount = cols;
       psColumns.style.fontSize = fs + 'pt';
-      if (psColumns.scrollHeight <= availableH) {
-        fitted = true;
-        break outer;
-      }
+      const heightOK = psColumns.scrollHeight <= availableH;
+      if (!heightOK) continue;
+      const widthOK = widest.scrollWidth <= widest.clientWidth + 1;
+      if (widthOK) { fitted = true; break outer; }
     }
   }
   if (!fitted) {
@@ -510,6 +510,18 @@ function formatDate(raw){
   const hh = String(d.getUTCHours()).padStart(2,'0');
   const mi = String(d.getUTCMinutes()).padStart(2,'0');
   return `${dd}/${mm}/${yy} ${hh}:${mi}`;
+}
+
+// Versión compacta (sin año) para las filas de la hoja de impresión.
+function formatDateShort(raw){
+  if (!raw) return '';
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return String(raw);
+  const dd = String(d.getUTCDate()).padStart(2,'0');
+  const mm = String(d.getUTCMonth()+1).padStart(2,'0');
+  const hh = String(d.getUTCHours()).padStart(2,'0');
+  const mi = String(d.getUTCMinutes()).padStart(2,'0');
+  return `${dd}/${mm} ${hh}:${mi}`;
 }
 
 function showStatus(msg, type){
