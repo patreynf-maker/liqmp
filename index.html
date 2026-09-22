@@ -225,6 +225,11 @@
     margin:0;
   }
   #printSheet .ps-header .ps-meta{font-size:8pt; color:#444;}
+  #printSheet .ps-page + .ps-page{
+    break-before:page;
+    page-break-before:always;
+    margin-top:0;
+  }
   #printSheet .ps-columns{
     column-count:2;
     column-gap:5mm;
@@ -299,12 +304,7 @@
 </div>
 
 <div id="printSheet">
-  <div class="ps-header">
-    <h2>Listado de Cobros</h2>
-    <div class="ps-meta" id="psMeta"></div>
-  </div>
-  <div class="ps-columns" id="psColumns"></div>
-  <div class="ps-total" id="psTotal"></div>
+  <div id="psPages"></div>
 </div>
 
 <script>
@@ -364,68 +364,104 @@ btnClear.addEventListener('click', () => {
   btnCsv.style.display = 'none';
 });
 const printSheet = document.getElementById('printSheet');
-const psColumns = document.getElementById('psColumns');
-const psTotal = document.getElementById('psTotal');
-const psMeta = document.getElementById('psMeta');
+const psPages = document.getElementById('psPages');
 
 // mm -> px, misma referencia que usa CSS para unidades físicas (96px = 1in)
 const MM_TO_PX = 96 / 25.4;
 const PAGE_H_MM = 297;
 const PAGE_MARGIN_MM = 30; // 15mm arriba + 15mm abajo (coincide con @page)
 
+function dayKeyOf(raw){
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return 'sin-fecha';
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+}
+function dayLabelOf(raw){
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return 'Sin fecha';
+  return `${String(d.getUTCDate()).padStart(2,'0')}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${d.getUTCFullYear()}`;
+}
+
+// Agrupa los cobros por día de pago, en orden cronológico.
+function groupByDay(cobros){
+  const map = new Map();
+  for (const c of cobros) {
+    const key = dayKeyOf(c.fecha);
+    if (!map.has(key)) map.set(key, { key, label: dayLabelOf(c.fecha), items: [] });
+    map.get(key).items.push(c);
+  }
+  return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key));
+}
+
 function buildPrintSheet(){
-  const total = currentCobros.reduce((acc, c) => acc + c.importe, 0);
-  psMeta.textContent = `${currentCobros.length} cobro${currentCobros.length===1?'':'s'} · ${new Date().toLocaleDateString('es-AR')}`;
-  psColumns.innerHTML = currentCobros.map(c => `
-    <div class="ps-entry">
-      <span>${formatDateShort(c.fecha)}</span>
-      <span>${c.movimiento ?? ''}</span>
-      <span>${(c.relacionada ?? '')}</span>
-      <span class="ps-amount">$${formatMoney(c.importe)}</span>
-    </div>
-  `).join('');
-  psTotal.innerHTML = `<span>Total de cobros (${currentCobros.length})</span><span class="ps-amount">$${formatMoney(total)}</span>`;
+  const groups = groupByDay(currentCobros);
+  psPages.innerHTML = groups.map(g => {
+    const total = g.items.reduce((acc, c) => acc + c.importe, 0);
+    const rows = g.items.map(c => `
+      <div class="ps-entry">
+        <span>${formatDateShort(c.fecha)}</span>
+        <span>${c.movimiento ?? ''}</span>
+        <span>${(c.relacionada ?? '')}</span>
+        <span class="ps-amount">$${formatMoney(c.importe)}</span>
+      </div>
+    `).join('');
+    return `
+      <div class="ps-page">
+        <div class="ps-header">
+          <h2>Listado de Cobros — ${g.label}</h2>
+          <div class="ps-meta">${g.items.length} cobro${g.items.length===1?'':'s'} del día</div>
+        </div>
+        <div class="ps-columns">${rows}</div>
+        <div class="ps-total"><span>Total del día (${g.items.length})</span><span class="ps-amount">$${formatMoney(total)}</span></div>
+      </div>
+    `;
+  }).join('');
 }
 
 // Prueba tamaños de fuente y cantidad de columnas hasta encontrar la
 // combinación más legible (fuente más grande posible) que entra,
-// sin recortar texto, en una sola hoja A4.
+// sin recortar texto, en una sola hoja A4. Se ajusta cada día (página)
+// de forma independiente, ya que pueden tener distinta cantidad de filas.
 function fitPrintSheetToOnePage(){
   printSheet.classList.add('measuring');
-  const headerH = printSheet.querySelector('.ps-header').getBoundingClientRect().height;
-  const totalH = psTotal.getBoundingClientRect().height;
-  const availableH = (PAGE_H_MM - PAGE_MARGIN_MM) * MM_TO_PX - headerH - totalH - (4 * MM_TO_PX);
-  const entries = Array.from(psColumns.querySelectorAll('.ps-entry'));
-  // Alcanza con controlar el ancho de la fila con el importe más largo:
-  // todas comparten el mismo ancho de columnas fijas (fecha/movimiento/relacionada).
-  let widest = entries[0];
-  let widestLen = 0;
-  entries.forEach(el => {
-    const amt = el.querySelector('.ps-amount');
-    const len = amt ? amt.textContent.length : 0;
-    if (len > widestLen) { widestLen = len; widest = el; }
-  });
-
   const fontSizes = [9, 8.5, 8, 7.5, 7, 6.5, 6, 5.5, 5, 4.5, 4, 3.7, 3.4, 3.1, 2.8];
   const columnOptions = [2, 3, 4, 5];
-  let fitted = false;
 
-  outer:
-  for (const fs of fontSizes) {
-    for (const cols of columnOptions) {
-      psColumns.style.columnCount = cols;
-      psColumns.style.fontSize = fs + 'pt';
-      const heightOK = psColumns.scrollHeight <= availableH;
-      if (!heightOK) continue;
-      const widthOK = widest.scrollWidth <= widest.clientWidth + 1;
-      if (widthOK) { fitted = true; break outer; }
+  psPages.querySelectorAll('.ps-page').forEach(page => {
+    const psColumns = page.querySelector('.ps-columns');
+    const psTotal = page.querySelector('.ps-total');
+    const headerH = page.querySelector('.ps-header').getBoundingClientRect().height;
+    const totalH = psTotal.getBoundingClientRect().height;
+    const availableH = (PAGE_H_MM - PAGE_MARGIN_MM) * MM_TO_PX - headerH - totalH - (4 * MM_TO_PX);
+    const entries = Array.from(psColumns.querySelectorAll('.ps-entry'));
+
+    // Alcanza con controlar el ancho de la fila con el importe más largo:
+    // todas comparten el mismo ancho de columnas fijas (fecha/movimiento/relacionada).
+    let widest = entries[0];
+    let widestLen = 0;
+    entries.forEach(el => {
+      const amt = el.querySelector('.ps-amount');
+      const len = amt ? amt.textContent.length : 0;
+      if (len > widestLen) { widestLen = len; widest = el; }
+    });
+
+    let fitted = false;
+    outer:
+    for (const fs of fontSizes) {
+      for (const cols of columnOptions) {
+        psColumns.style.columnCount = cols;
+        psColumns.style.fontSize = fs + 'pt';
+        const heightOK = psColumns.scrollHeight <= availableH;
+        if (!heightOK) continue;
+        const widthOK = widest.scrollWidth <= widest.clientWidth + 1;
+        if (widthOK) { fitted = true; break outer; }
+      }
     }
-  }
-  if (!fitted) {
-    // último recurso: la fuente más chica probada con el mayor número de columnas
-    psColumns.style.columnCount = columnOptions[columnOptions.length - 1];
-    psColumns.style.fontSize = fontSizes[fontSizes.length - 1] + 'pt';
-  }
+    if (!fitted) {
+      psColumns.style.columnCount = columnOptions[columnOptions.length - 1];
+      psColumns.style.fontSize = fontSizes[fontSizes.length - 1] + 'pt';
+    }
+  });
   printSheet.classList.remove('measuring');
 }
 
